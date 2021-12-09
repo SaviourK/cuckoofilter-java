@@ -11,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class App {
 
     private static final String TABLE_NAME = "password_table";
+    private static final String TABLE_NAME_FAKE = "password_fake";
 
     public static void main(String[] args) throws IOException {
 
@@ -37,6 +38,7 @@ public class App {
                 connection.prepareStatement("TRUNCATE TABLE " + TABLE_NAME).execute();
                 PreparedStatement preparedInsertStatement = connection.prepareStatement("INSERT INTO " + TABLE_NAME + " (id, password) VALUES (?, ?)");
                 int inserted = 0;
+                boolean isFakeTableSet = false;
                 for (long id = 1; id <= totalPassword; ) {
                     br.skip(random.nextInt(5));
                     String password = br.readLine().replaceAll("\\s+", "");
@@ -48,12 +50,17 @@ public class App {
                         }
                         passwords.add(password);
                         preparedInsertStatement.addBatch();
-                        id++;
+
                     }
                     if (id % 1000 == 0) {
                         inserted += preparedInsertStatement.executeBatch().length;
                         connection.commit();
                         System.out.println("Total committed " + id + "/" + totalPassword);
+                        id++;
+                        if (id == totalPassword / 2 && !isFakeTableSet) {
+                            preparedInsertStatement = connection.prepareStatement("INSERT INTO " + TABLE_NAME_FAKE + " (id, password) VALUES (?, ?)");
+                            isFakeTableSet = true;
+                        }
                     }
                 }
                 inserted += preparedInsertStatement.executeBatch().length;
@@ -65,31 +72,9 @@ public class App {
                 long end = System.currentTimeMillis();
                 System.out.println("End inserting Total time taken = " + (end - start) + " ms.");
             } else {
-                Statement statement = connection.createStatement();
-                ResultSet resultSet = statement.executeQuery("SELECT password FROM " + TABLE_NAME);
-                int inserted = 0;
-                while (resultSet.next()) {
-                    final String password = resultSet.getString(1);
-                    filter.put(password);
-                    passwords.add(password);
-                    inserted ++;
-                    if (inserted % 10000 == 0) {
-                        System.out.println("Total true password in list so far: " + inserted);
-                    }
-                }
+                insertToPasswordList(filter, passwords, connection, TABLE_NAME);
+                insertToPasswordList(filter, passwords, connection, TABLE_NAME_FAKE);
             }
-
-
-            /*for (int i = 0; i < totalPassword - 490_000; ) {
-                String password = RandomStringUtils.randomAlphabetic(3, 10);
-                if (!passwords.contains(password)) {
-                    passwords.add(password);
-                    i++;
-                    if (i % 10000 == 0) {
-                        System.out.println("Total false password in list so far: " + i);
-                    }
-                }
-            }*/
 
             System.out.println("Total password in list " + passwords.size());
 
@@ -98,48 +83,32 @@ public class App {
             matchChecking(filter, passwords, connection, true);
             matchChecking(filter, passwords, connection, false);
 
-            //matchCheckingParallel(filter, passwords, connection, true);
-            //matchCheckingParallel(filter, passwords, connection, false);
-
-
         } catch (Exception e) {
             e.printStackTrace();
         }
-
-
-
-
     }
 
-    private static void matchCheckingParallel(CuckooFilter<String> filter, List<String> passwords, Connection connection, boolean withFilter) throws SQLException {
-        AtomicInteger totalMightContain = new AtomicInteger();
-        AtomicInteger totalActual = new AtomicInteger();
-        PreparedStatement preparedStatement = connection.prepareStatement("SELECT 1 FROM password_table WHERE password = ?");
-        passwords.parallelStream().forEach(password -> {
-            if (withFilter) {
-                if (filter.mightContain(password)) {
-                    totalMightContain.incrementAndGet();
-                    try {
-                        getActualResult(preparedStatement, totalActual, password);
-                    } catch (SQLException e) {
-                        e.printStackTrace();
-                    }
-                }
-            } else {
-                try {
-                    getActualResult(preparedStatement, totalActual, password);
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
+    private static void insertToPasswordList(CuckooFilter<String> filter, List<String> passwords, Connection connection, String tableName) throws SQLException {
+        Statement statement = connection.createStatement();
+        ResultSet resultSet = statement.executeQuery("SELECT password FROM " + tableName);
+        int inserted = 0;
+        while (resultSet.next()) {
+            final String password = resultSet.getString(1);
+            if (TABLE_NAME.equals(tableName)) {
+                filter.put(password);
             }
-
-        });
+            passwords.add(password);
+            inserted++;
+            if (inserted % 10000 == 0) {
+                System.out.println("Total password from table " + tableName + " in list so far: " + inserted);
+            }
+        }
     }
 
     private static void matchChecking(CuckooFilter<String> filter, List<String> passwords, Connection connection, boolean withFilter) throws SQLException {
         long start = System.currentTimeMillis();
         System.out.println("Start match checking. With filter? " + withFilter);
-        PreparedStatement preparedStatement = connection.prepareStatement("SELECT 1 FROM password_table WHERE password = ?");
+        PreparedStatement preparedStatement = connection.prepareStatement("SELECT 1 FROM " + TABLE_NAME + " WHERE password = ?");
         int totalMightContain = 0;
         int totalActual = 0;
         for (String password : passwords) {
@@ -153,7 +122,7 @@ public class App {
             }
             if (totalActual % 10000 == 0) {
                 long end = System.currentTimeMillis();
-                System.out.println("Total actual check: " + totalActual + " Total time taken = " + (end - start) + " ms. With filter? " + withFilter );
+                System.out.println("Total actual check: " + totalActual + " Total time taken = " + (end - start) + " ms. With filter? " + withFilter);
             }
         }
         preparedStatement.close();
