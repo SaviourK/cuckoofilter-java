@@ -36,10 +36,11 @@ public class App {
                 System.out.println("Start inserting password to DB");
                 long start = System.currentTimeMillis();
                 connection.prepareStatement("TRUNCATE TABLE " + TABLE_NAME).execute();
+                connection.prepareStatement("TRUNCATE TABLE " + TABLE_NAME_FAKE).execute();
                 PreparedStatement preparedInsertStatement = connection.prepareStatement("INSERT INTO " + TABLE_NAME + " (id, password) VALUES (?, ?)");
                 int inserted = 0;
                 boolean isFakeTableSet = false;
-                for (long id = 1; id <= totalPassword; ) {
+                for (long id = 1; id <= totalPassword + 1; ) {
                     br.skip(random.nextInt(5));
                     String password = br.readLine().replaceAll("\\s+", "");
                     if (!password.isEmpty() && !passwords.contains(password)) {
@@ -140,15 +141,5 @@ public class App {
         }
         resultSet.close();
         return totalActual;
-    }
-
-    private static void getActualResult(PreparedStatement preparedStatement, AtomicInteger totalActual, String password) throws SQLException {
-        preparedStatement.setString(1, password);
-        preparedStatement.execute();
-        final ResultSet resultSet = preparedStatement.executeQuery();
-        if (resultSet.next()) {
-            totalActual.incrementAndGet();
-        }
-        resultSet.close();
     }
 }
